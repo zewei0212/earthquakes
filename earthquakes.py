@@ -2,60 +2,111 @@
 # over the Internet.
 # However, we will use a more powerful and simpler library called requests.
 # This is external library that you may need to install first.
+import json
 import requests
 
 
+
 def get_data():
-    # With requests, we can ask the web service for the data.
-    # Can you understand the parameters we are passing here?
+    """
+    Fetch earthquakes as GeoJSON from the USGS FDSN Event API and parse to Python types.
+
+    Returns:
+        A Python dict representing the GeoJSON FeatureCollection.
+        See USGS GeoJSON doc: features[i].properties.mag; features[i].geometry.coordinates = [lon, lat, depth].
+    """
+    # Build request (the API defaults to QuakeML; request GeoJSON explicitly)
     response = requests.get(
-        "http://earthquake.usgs.gov/fdsnws/event/1/query.geojson",
+        "https://earthquake.usgs.gov/fdsnws/event/1/query",
         params={
-            'starttime': "2000-01-01",
-            "maxlatitude": "58.723",
-            "minlatitude": "50.008",
-            "maxlongitude": "1.67",
-            "minlongitude": "-9.756",
-            "minmagnitude": "1",
+            "format": "geojson",      # ask for GeoJSON explicitly
+            "starttime": "2000-01-01",
             "endtime": "2018-10-11",
-            "orderby": "time-asc"}
+            "minlatitude": "50.008",
+            "maxlatitude": "58.723",
+            "minlongitude": "-9.756",
+            "maxlongitude": "1.67",
+            "minmagnitude": "1",
+            "orderby": "time-asc",    # oldest first; we will compute max ourselves
+            # You could also request orderby=magnitude&limit=1 to let the API sort by magnitude,
+            # but the exercise asks you to process the data yourself.
+        },
+        timeout=30,
     )
+    response.raise_for_status()
 
-    # The response we get back is an object with several fields.
-    # The actual contents we care about are in its text field:
-    text = response.text
-    # To understand the structure of this text, you may want to save it
-    # to a file and open it in VS Code or a browser.
-    # See the README file for more information.
-    ...
+    # Parse the GeoJSON (text -> Python dict)
+    data = response.json()  # same as json.loads(response.text)
 
-    # We need to interpret the text to get values that we can work with.
-    # What format is the text in? How can we load the values?
-    return ...
+    # Optional sanity checks (match the documented structure)
+    if not isinstance(data, dict) or "features" not in data:
+        raise ValueError("Unexpected response structure (no 'features' in GeoJSON).")
+
+    return data
+
 
 def count_earthquakes(data):
     """Get the total number of earthquakes in the response."""
-    return ...
+    # Either read metadata.count or len(features). Both should agree for a full response.
+    # USGS GeoJSON defines metadata.count and features[]. :contentReference[oaicite:2]{index=2}
+    meta_count = data.get("metadata", {}).get("count")
+    features = data.get("features", [])
+    return int(meta_count) if isinstance(meta_count, int) else len(features)
 
 
 def get_magnitude(earthquake):
-    """Retrive the magnitude of an earthquake item."""
-    return ...
+    """Retrieve the magnitude of a single earthquake feature."""
+    # properties.mag is documented as a decimal; it may be None for some events. :contentReference[oaicite:3]{index=3}
+    mag = earthquake.get("properties", {}).get("mag", None)
+    # Some events can have missing/None magnitudes; normalize to float('nan') to make comparisons safe.
+    return float(mag) if mag is not None else float("nan")
 
 
-def get_location(earthquake):
-    """Retrieve the latitude and longitude of an earthquake item."""
-    # There are three coordinates, but we don't care about the third (altitude)
-    return ...
+def get_location(earthquake) :
+    """
+    Retrieve (latitude, longitude) for a single earthquake feature.
+
+    GeoJSON coordinates are [lon, lat, depth] — we ignore depth here. :contentReference[oaicite:4]{index=4}
+    """
+    coords = earthquake.get("geometry", {}).get("coordinates", [])
+    if not (isinstance(coords, list) and len(coords) >= 2):
+        raise ValueError("Earthquake feature missing coordinates.")
+    lon, lat = coords[0], coords[1]
+    return float(lat), float(lon)
 
 
-def get_maximum(data):
-    """Get the magnitude and location of the strongest earthquake in the data."""
-    ...
+def get_maximum(data) :
+    """
+    Find the strongest earthquake: return (max_magnitude, (lat, lon)).
+
+    Skips features with missing magnitudes (None/NaN).
+    """
+    features: List[Dict[str, Any]] = data.get("features", [])
+    if not features:
+        raise ValueError("No earthquake features in data.")
+
+    # Compute argmax by magnitude, ignoring missing values
+    max_feature = None
+    max_mag = float("-inf")
+
+    for f in features:
+        m = get_magnitude(f)
+        if m != m:   # NaN check
+            continue
+        if m > max_mag:
+            max_mag = m
+            max_feature = f
+
+    if max_feature is None:
+        raise ValueError("No features contained a valid magnitude.")
+
+    max_loc = get_location(max_feature)
+    return max_mag, max_loc
 
 
-# With all the above functions defined, we can now call them and get the result
-data = get_data()
-print(f"Loaded {count_earthquakes(data)}")
-max_magnitude, max_location = get_maximum(data)
-print(f"The strongest earthquake was at {max_location} with magnitude {max_magnitude}")
+# Run the analysis
+if __name__ == "__main__":
+    data = get_data()
+    print(f"`The number of loaded {count_earthquakes(data)} earthquakes")
+    max_magnitude, max_location = get_maximum(data)
+    print(f"The strongest earthquake was at {max_location} with the magnitude {max_magnitude}")
