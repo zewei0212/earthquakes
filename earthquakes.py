@@ -15,11 +15,10 @@ def get_data():
         A Python dict representing the GeoJSON FeatureCollection.
         See USGS GeoJSON doc: features[i].properties.mag; features[i].geometry.coordinates = [lon, lat, depth].
     """
-    # Build request (the API defaults to QuakeML; request GeoJSON explicitly)
+    
     response = requests.get(
         "https://earthquake.usgs.gov/fdsnws/event/1/query",
         params={
-            "format": "geojson",      # ask for GeoJSON explicitly
             "starttime": "2000-01-01",
             "endtime": "2018-10-11",
             "minlatitude": "50.008",
@@ -27,18 +26,16 @@ def get_data():
             "minlongitude": "-9.756",
             "maxlongitude": "1.67",
             "minmagnitude": "1",
-            "orderby": "time-asc",    # oldest first; we will compute max ourselves
-            # You could also request orderby=magnitude&limit=1 to let the API sort by magnitude,
-            # but the exercise asks you to process the data yourself.
+            "orderby": "time-asc",    
         },
         timeout=30,
     )
     response.raise_for_status()
 
-    # Parse the GeoJSON (text -> Python dict)
-    data = response.json()  # same as json.loads(response.text)
+   
+    data = response.json()  
 
-    # Optional sanity checks (match the documented structure)
+ 
     if not isinstance(data, dict) or "features" not in data:
         raise ValueError("Unexpected response structure (no 'features' in GeoJSON).")
 
@@ -47,8 +44,7 @@ def get_data():
 
 def count_earthquakes(data):
     """Get the total number of earthquakes in the response."""
-    # Either read metadata.count or len(features). Both should agree for a full response.
-    # USGS GeoJSON defines metadata.count and features[]. :contentReference[oaicite:2]{index=2}
+
     meta_count = data.get("metadata", {}).get("count")
     features = data.get("features", [])
     return int(meta_count) if isinstance(meta_count, int) else len(features)
@@ -56,9 +52,9 @@ def count_earthquakes(data):
 
 def get_magnitude(earthquake):
     """Retrieve the magnitude of a single earthquake feature."""
-    # properties.mag is documented as a decimal; it may be None for some events. :contentReference[oaicite:3]{index=3}
+  
     mag = earthquake.get("properties", {}).get("mag", None)
-    # Some events can have missing/None magnitudes; normalize to float('nan') to make comparisons safe.
+   
     return float(mag) if mag is not None else float("nan")
 
 
@@ -91,7 +87,7 @@ def get_maximum(data) :
 
     for f in features:
         m = get_magnitude(f)
-        if m != m:   # NaN check
+        if m != m:   
             continue
         if m > max_mag:
             max_mag = m
